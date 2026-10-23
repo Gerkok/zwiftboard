@@ -159,7 +159,7 @@ func (m Model) header() string {
 	profile := m.cfg.Profile
 	if profile != "" && len(m.cfg.Profiles) > 1 {
 		// Show the position so a switch is obvious even when names are similar.
-		profile += " " + strconv.Itoa(m.cfg.ProfileIndex+1) + "/" + strconv.Itoa(len(m.cfg.Profiles))
+		profile += " (" + strconv.Itoa(m.cfg.ProfileIndex+1) + "/" + strconv.Itoa(len(m.cfg.Profiles)) + ")"
 	}
 	version := m.cfg.Version
 	update := ""
@@ -169,9 +169,9 @@ func (m Model) header() string {
 
 	// Show both profile and version
 	if profile != "" && version != "" {
-		title += "  " + sChip.Render(profile) + sMuted.Render(" (version "+version) + update + sMuted.Render(")")
+		title += "  " + sChip.Render(profile) + sMuted.Render(" [version "+version) + update + sMuted.Render("]")
 	} else if version != "" {
-		title += sMuted.Render(" version ") + sMuted.Render("(version "+version) + update + sMuted.Render(")")
+		title += sMuted.Render(" version ") + sMuted.Render("[version "+version) + update + sMuted.Render("]")
 	} else if profile != "" {
 		// Show only profile if no version
 		title += "  " + sChip.Render(profile)

@@ -260,7 +260,7 @@ func TestViewHeaderProfileIndex(t *testing.T) {
 	cfg.Profile = "systm"
 	cfg.Profiles = []string{"a", "systm", "c"}
 	cfg.ProfileIndex = 1
-	has(t, on(cfg, PodConnected, PodConnected).View(), "systm 2/3")
+	has(t, on(cfg, PodConnected, PodConnected).View(), "systm (2/3)")
 }
 
 func TestViewShowsStatus(t *testing.T) {
