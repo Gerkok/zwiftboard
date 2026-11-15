@@ -1,12 +1,15 @@
 package io.zwiftboard.android
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -18,6 +21,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var rightStatus: TextView
     private lateinit var linkStatus: TextView
     private lateinit var instruction: TextView
+    private lateinit var signInButton: Button
+    private val unlockClient by lazy { ZwiftUnlockClient(applicationContext) }
+
     private val refresh = object : Runnable {
         override fun run() {
             renderStatus()
@@ -42,12 +48,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(createContent())
         renderStatus()
+        updateSignInButton()
     }
 
     override fun onResume() {
         super.onResume()
         statusHandler.removeCallbacks(refresh)
         statusHandler.post(refresh)
+        updateSignInButton()
     }
 
     override fun onPause() {
@@ -86,6 +94,11 @@ class MainActivity : ComponentActivity() {
                 renderStatus()
             }
         }
+        signInButton = Button(this).apply {
+            text = getString(R.string.sign_in_to_zwift)
+            setOnClickListener { showSignInDialog() }
+        }
+
         content.addView(title, matchWidth())
         content.addView(instruction, matchWidth())
         content.addView(leftStatus, matchWidth())
@@ -93,6 +106,7 @@ class MainActivity : ComponentActivity() {
         content.addView(linkStatus, matchWidth())
         content.addView(start, matchWidth())
         content.addView(stop, matchWidth())
+        content.addView(signInButton, matchWidth())
         return ScrollView(this).apply { addView(content) }
     }
 
@@ -106,6 +120,73 @@ class MainActivity : ComponentActivity() {
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     )
+
+    private fun updateSignInButton() {
+        signInButton.text = if (unlockClient.ready()) {
+            getString(R.string.zwift_signed_in)
+        } else {
+            getString(R.string.sign_in_to_zwift)
+        }
+        signInButton.isEnabled = true
+    }
+
+    private fun showSignInDialog() {
+        val emailField = EditText(this).apply {
+            hint = getString(R.string.email_hint)
+            inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSingleLine(true)
+        }
+        val passwordField = EditText(this).apply {
+            hint = getString(R.string.password_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 16, 24, 16)
+            addView(emailField, matchWidth())
+            addView(passwordField, matchWidth())
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.sign_in_title)
+            .setView(container)
+            .setPositiveButton(R.string.sign_in, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            val ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            ok.setOnClickListener {
+                val email = emailField.text?.toString()?.trim().orEmpty()
+                val password = passwordField.text?.toString().orEmpty()
+                if (email.isEmpty()) {
+                    emailField.error = getString(R.string.email_required)
+                    return@setOnClickListener
+                }
+                if (password.isEmpty()) {
+                    passwordField.error = getString(R.string.password_required)
+                    return@setOnClickListener
+                }
+
+                ok.isEnabled = false
+                val success = unlockClient.login(email, password)
+                ok.isEnabled = true
+
+                if (success) {
+                    instruction.text = getString(R.string.sign_in_success)
+                    updateSignInButton()
+                    dialog.dismiss()
+                } else {
+                    instruction.text = getString(R.string.sign_in_failed)
+                    passwordField.error = getString(R.string.sign_in_failed)
+                }
+            }
+        }
+
+        dialog.show()
+    }
 
     private fun requestPermissionsAndStart() {
         val required = requiredBluetoothPermissions().filter {
