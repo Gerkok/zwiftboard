@@ -42,6 +42,7 @@ class ClickService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connector = Executors.newSingleThreadExecutor()
+    private val unlockClient = ZwiftUnlockClient(applicationContext)
     private val sessions = ConcurrentHashMap<String, PodSession>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
     private val knownSides = ConcurrentHashMap<String, Int>()
@@ -402,7 +403,27 @@ class ClickService : Service() {
                 (value[0].toInt() and 0xFF) == 0xFF &&
                 (value[1].toInt() and 0xFF) == 0x03
             ) {
-                if (session.syncRx != null) write(session, ClickProtocol.challengeResponse)
+                val challengePayload = value.copyOfRange(3, value.size)
+                val ack = byteArrayOf(0xFF.toByte(), 0x04, 0x00)
+                if (session.side == ClickProtocol.LEFT_DEVICE_ID && unlockClient.ready()) {
+                    unlockClient.solveAsync(challengePayload) { reply ->
+                        val response = if (reply == null || reply.isEmpty()) {
+                            ack
+                        } else {
+                            val out = ByteArray(ack.size + reply.size)
+                            System.arraycopy(ack, 0, out, 0, ack.size)
+                            System.arraycopy(reply, 0, out, ack.size, reply.size)
+                            out
+                        }
+                        mainHandler.post {
+                            if (sessions[gatt.device.address] === session) {
+                                write(session, response)
+                            }
+                        }
+                    }
+                    return@post
+                }
+                if (session.syncRx != null) write(session, ack)
                 return@post
             }
 
