@@ -35,6 +35,12 @@ internal class ZwiftUnlockClient(context: Context) {
         return true
     }
 
+    fun loginAsync(email: String, password: String, callback: (Boolean) -> Unit) {
+        executor.execute {
+            callback(login(email, password))
+        }
+    }
+
     fun solveAsync(challenge: ByteArray, callback: (ByteArray?) -> Unit) {
         executor.execute {
             try {
@@ -73,9 +79,13 @@ internal class ZwiftUnlockClient(context: Context) {
         return try {
             conn.outputStream.use { it.write(challenge) }
             val code = conn.responseCode
-            val body = conn.inputStream.readBytes()
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.use { it.readBytes() } ?: ByteArray(0)
             when {
-                code == 401 -> null
+                code == 401 -> {
+                    Log.w(TAG, "d-lock request unauthorized (HTTP 401)")
+                    null
+                }
                 code != 200 -> {
                     Log.w(TAG, "d-lock request failed with HTTP $code")
                     null
@@ -131,7 +141,8 @@ internal class ZwiftUnlockClient(context: Context) {
         return try {
             conn.outputStream.use { it.write(form.toByteArray(StandardCharsets.UTF_8)) }
             val code = conn.responseCode
-            val raw = conn.inputStream.readBytes()
+            val raw = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.use { it.readBytes() } ?: ByteArray(0)
             if (code != 200) {
                 val error = try {
                     JSONObject(String(raw, StandardCharsets.UTF_8)).optString("error", "")

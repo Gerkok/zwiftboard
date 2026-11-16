@@ -32,4 +32,16 @@ class ClickProtocolTest {
 
         assertEquals(0xFFFFFFFFL, bitmap)
     }
+
+    @Test
+    fun reportsMirroredRightPodButtonsAsRightPodPresses() {
+        assertEquals(ClickProtocol.RIGHT_DEVICE_ID, ClickProtocol.buttonOwner("B"))
+        assertEquals(ClickProtocol.RIGHT_DEVICE_ID, ClickProtocol.buttonOwner("PLUS"))
+    }
+
+    @Test
+    fun reportsLeftPodButtonsAsLeftPodPresses() {
+        assertEquals(ClickProtocol.LEFT_DEVICE_ID, ClickProtocol.buttonOwner("UP"))
+        assertEquals(ClickProtocol.LEFT_DEVICE_ID, ClickProtocol.buttonOwner("MIN"))
+    }
 }

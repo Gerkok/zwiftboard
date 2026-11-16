@@ -37,6 +37,14 @@ internal object ClickProtocol {
         0x01000L to "PLUS",
     )
 
+    private val leftPodButtons = setOf("LEFT", "UP", "RIGHT", "DOWN", "MIN")
+
+    fun buttonOwner(button: String): Int? = when (button) {
+        in leftPodButtons -> LEFT_DEVICE_ID
+        "A", "B", "Y", "Z", "PLUS" -> RIGHT_DEVICE_ID
+        else -> null
+    }
+
     fun decodeButtonBitmap(frame: ByteArray): Long? {
         if (frame.isEmpty() || (frame[0].toInt() and 0xFF) != KEY_PAD_MESSAGE) return null
 

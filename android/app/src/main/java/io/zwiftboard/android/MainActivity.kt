@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.text.InputType
+import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
@@ -20,6 +21,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var leftStatus: TextView
     private lateinit var rightStatus: TextView
     private lateinit var linkStatus: TextView
+    private lateinit var leftUnlockStatus: TextView
+    private lateinit var rightUnlockStatus: TextView
+    private lateinit var lastPressStatus: TextView
+    private lateinit var modeButton: Button
     private lateinit var instruction: TextView
     private lateinit var signInButton: Button
     private val unlockClient by lazy { ZwiftUnlockClient(applicationContext) }
@@ -82,6 +87,9 @@ class MainActivity : ComponentActivity() {
         leftStatus = makeStatus(getString(R.string.left_pod))
         rightStatus = makeStatus(getString(R.string.right_pod))
         linkStatus = makeStatus(getString(R.string.mywhoosh_link))
+        leftUnlockStatus = makeStatus(getString(R.string.left_pod_unlock))
+        rightUnlockStatus = makeStatus(getString(R.string.right_pod_unlock))
+        lastPressStatus = makeStatus(getString(R.string.last_button_press))
 
         val start = Button(this).apply {
             text = getString(R.string.start_bridge)
@@ -94,6 +102,9 @@ class MainActivity : ComponentActivity() {
                 renderStatus()
             }
         }
+        modeButton = Button(this).apply {
+            setOnClickListener { toggleMode() }
+        }
         signInButton = Button(this).apply {
             text = getString(R.string.sign_in_to_zwift)
             setOnClickListener { showSignInDialog() }
@@ -101,8 +112,12 @@ class MainActivity : ComponentActivity() {
 
         content.addView(title, matchWidth())
         content.addView(instruction, matchWidth())
+        content.addView(modeButton, matchWidth())
         content.addView(leftStatus, matchWidth())
         content.addView(rightStatus, matchWidth())
+        content.addView(leftUnlockStatus, matchWidth())
+        content.addView(rightUnlockStatus, matchWidth())
+        content.addView(lastPressStatus, matchWidth())
         content.addView(linkStatus, matchWidth())
         content.addView(start, matchWidth())
         content.addView(stop, matchWidth())
@@ -171,16 +186,19 @@ class MainActivity : ComponentActivity() {
                 }
 
                 ok.isEnabled = false
-                val success = unlockClient.login(email, password)
-                ok.isEnabled = true
-
-                if (success) {
-                    instruction.text = getString(R.string.sign_in_success)
-                    updateSignInButton()
-                    dialog.dismiss()
-                } else {
-                    instruction.text = getString(R.string.sign_in_failed)
-                    passwordField.error = getString(R.string.sign_in_failed)
+                unlockClient.loginAsync(email, password) { success ->
+                    runOnUiThread {
+                        if (!dialog.isShowing) return@runOnUiThread
+                        ok.isEnabled = true
+                        if (success) {
+                            instruction.text = getString(R.string.sign_in_success)
+                            updateSignInButton()
+                            dialog.dismiss()
+                        } else {
+                            instruction.text = getString(R.string.sign_in_failed)
+                            passwordField.error = getString(R.string.sign_in_failed)
+                        }
+                    }
                 }
             }
         }
@@ -218,6 +236,12 @@ class MainActivity : ComponentActivity() {
     private fun renderStatus() {
         val prefs = getSharedPreferences(ClickService.PREFERENCES, MODE_PRIVATE)
         val running = prefs.getBoolean(ClickService.KEY_RUNNING, false)
+        val mode = prefs.getString(ClickService.KEY_MODE, MyWhooshProtocol.Mode.SINGLE.name)
+        modeButton.text = if (mode == MyWhooshProtocol.Mode.DOUBLE.name) {
+            getString(R.string.mode_double)
+        } else {
+            getString(R.string.mode_single)
+        }
         leftStatus.text = getString(
             R.string.status_line,
             getString(R.string.left_pod),
@@ -233,6 +257,63 @@ class MainActivity : ComponentActivity() {
             getString(R.string.mywhoosh_link),
             statusValue(running, ClickService.KEY_LINK, R.string.starting),
         )
+        val leftUnlock = if (running) {
+            prefs.getString(ClickService.KEY_LEFT_UNLOCK, LeftPodUnlockState.Value.UNKNOWN.name)
+                ?: LeftPodUnlockState.Value.UNKNOWN.name
+        } else {
+            LeftPodUnlockState.Value.UNKNOWN.name
+        }
+        leftUnlockStatus.text = getString(
+            R.string.status_line,
+            getString(R.string.left_pod_unlock),
+            unlockStatusLabel(leftUnlock),
+        )
+        rightUnlockStatus.text = getString(
+            R.string.status_line,
+            getString(R.string.right_pod_unlock),
+            getString(R.string.unlock_not_required),
+        )
+        val lastButton = prefs.getString(ClickService.KEY_LAST_PRESS_BUTTON, null)
+        val lastPress = if (lastButton == null) {
+            getString(R.string.no_button_press)
+        } else {
+            val side = prefs.getString(ClickService.KEY_LAST_PRESS_SIDE, "") ?: ""
+            val timestamp = prefs.getLong(ClickService.KEY_LAST_PRESS_AT, 0L)
+            if (timestamp > 0L) {
+                getString(
+                    R.string.last_button_press_value,
+                    side,
+                    lastButton,
+                    DateFormat.getTimeFormat(this).format(timestamp),
+                )
+            } else {
+                getString(R.string.last_button_press_name, side, lastButton)
+            }
+        }
+        lastPressStatus.text = getString(
+            R.string.status_line,
+            getString(R.string.last_button_press),
+            lastPress,
+        )
+    }
+
+    private fun unlockStatusLabel(value: String): String = when (value) {
+        LeftPodUnlockState.Value.LOCKED.name -> getString(R.string.unlock_locked)
+        LeftPodUnlockState.Value.UNLOCKING.name -> getString(R.string.unlock_in_progress)
+        LeftPodUnlockState.Value.UNLOCKED.name -> getString(R.string.unlock_unlocked)
+        else -> getString(R.string.unlock_unknown)
+    }
+
+    private fun toggleMode() {
+        val prefs = getSharedPreferences(ClickService.PREFERENCES, MODE_PRIVATE)
+        val current = prefs.getString(ClickService.KEY_MODE, MyWhooshProtocol.Mode.SINGLE.name)
+        val next = if (current == MyWhooshProtocol.Mode.DOUBLE.name) {
+            MyWhooshProtocol.Mode.SINGLE
+        } else {
+            MyWhooshProtocol.Mode.DOUBLE
+        }
+        prefs.edit().putString(ClickService.KEY_MODE, next.name).apply()
+        renderStatus()
     }
 
     private fun statusValue(running: Boolean, key: String, fallback: Int): String =

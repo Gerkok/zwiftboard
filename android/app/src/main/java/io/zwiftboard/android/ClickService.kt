@@ -42,7 +42,9 @@ class ClickService : Service() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connector = Executors.newSingleThreadExecutor()
-    private val unlockClient = ZwiftUnlockClient(applicationContext)
+    private lateinit var unlockClient: ZwiftUnlockClient
+    private val leftUnlockState = LeftPodUnlockState()
+    private val doubleModeAutoSelector = DoubleModeAutoSelector()
     private val sessions = ConcurrentHashMap<String, PodSession>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
     private val knownSides = ConcurrentHashMap<String, Int>()
@@ -164,6 +166,7 @@ class ClickService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        unlockClient = ZwiftUnlockClient(applicationContext)
         createNotificationChannel()
         serviceRunning = true
         startForeground(NOTIFICATION_ID, buildNotification("Starting BLE and Link server"))
@@ -405,8 +408,15 @@ class ClickService : Service() {
             ) {
                 val challengePayload = value.copyOfRange(3, value.size)
                 val ack = byteArrayOf(0xFF.toByte(), 0x04, 0x00)
+                if (session.side == ClickProtocol.LEFT_DEVICE_ID) {
+                    val signedIn = unlockClient.ready()
+                    leftUnlockState.onChallenge(signedIn)
+                    updateLeftUnlockStatus()
+                    Log.i(TAG, "LEFT pod unlock challenge received; signed in=$signedIn")
+                }
                 if (session.side == ClickProtocol.LEFT_DEVICE_ID && unlockClient.ready()) {
                     unlockClient.solveAsync(challengePayload) { reply ->
+                        val solved = reply != null && reply.isNotEmpty()
                         val response = if (reply == null || reply.isEmpty()) {
                             ack
                         } else {
@@ -417,6 +427,9 @@ class ClickService : Service() {
                         }
                         mainHandler.post {
                             if (sessions[gatt.device.address] === session) {
+                                leftUnlockState.onSolveResult(solved)
+                                updateLeftUnlockStatus()
+                                Log.i(TAG, "LEFT pod unlock response ${if (solved) "received" else "failed"}")
                                 write(session, response)
                             }
                         }
@@ -427,13 +440,22 @@ class ClickService : Service() {
                 return@post
             }
 
-            if (session.side != ClickProtocol.RIGHT_DEVICE_ID) return@post
             val current = ClickProtocol.decodeButtonBitmap(value) ?: return@post
+            if (session.side == ClickProtocol.LEFT_DEVICE_ID) {
+                leftUnlockState.onButtonData()
+                updateLeftUnlockStatus()
+            }
             ClickProtocol.edges(session.previousBitmap, current).forEach { edge ->
-                val line = MyWhooshProtocol.controlLine(edge.button, edge.pressed)
+                val owner = ClickProtocol.buttonOwner(edge.button) ?: session.side
+                if (session.side == owner && edge.pressed) {
+                    recordLastPress(sideName(owner), edge.button)
+                }
+                if (session.side != owner) return@forEach
+                val mode = currentMode()
+                val line = MyWhooshProtocol.controlLine(edge.button, edge.pressed, mode)
                 Log.i(
                     TAG,
-                    "RIGHT button ${edge.button} ${if (edge.pressed) "pressed" else "released"}; mapped=${line != null}; Link connected=${linkServer?.isConnected == true}",
+                    "${sideName(owner)} button ${edge.button} ${if (edge.pressed) "pressed" else "released"}; mode=${mode.name}; mapped=${line != null}; Link connected=${linkServer?.isConnected == true}",
                 )
                 line?.let {
                     linkServer?.sendControl(it)
@@ -476,9 +498,11 @@ class ClickService : Service() {
         if (!sessions.remove(address, session)) return
         connecting.remove(address)
         retryAfter[address] = SystemClock.elapsedRealtime() + CONNECT_RETRY_MS
-        if (session.side == ClickProtocol.RIGHT_DEVICE_ID) {
-            MyWhooshProtocol.controlLine("A", false)?.let { linkServer?.sendControl(it) }
+        if (session.side == ClickProtocol.LEFT_DEVICE_ID) {
+            leftUnlockState.reset()
+            updateLeftUnlockStatus()
         }
+        MyWhooshProtocol.controlLine("A", false, currentMode())?.let { linkServer?.sendControl(it) }
         try {
             session.gatt.close()
         } catch (error: SecurityException) {
@@ -493,6 +517,7 @@ class ClickService : Service() {
         val left = podStatus(ClickProtocol.LEFT_DEVICE_ID, now)
         val right = podStatus(ClickProtocol.RIGHT_DEVICE_ID, now)
         updateStatus(left = left, right = right)
+        maybeSelectDoubleMode()
     }
 
     private fun podStatus(side: Int, now: Long): String {
@@ -521,14 +546,65 @@ class ClickService : Service() {
         }
     }
 
+    private fun updateLeftUnlockStatus() {
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LEFT_UNLOCK, leftUnlockState.value.name)
+            .apply()
+        maybeSelectDoubleMode()
+    }
+
+    private fun maybeSelectDoubleMode() {
+        val sessionsBySide = sessions.values
+            .filter { it.ready }
+            .map { it.side }
+            .toSet()
+        val next = doubleModeAutoSelector.onState(
+            leftConnected = ClickProtocol.LEFT_DEVICE_ID in sessionsBySide,
+            rightConnected = ClickProtocol.RIGHT_DEVICE_ID in sessionsBySide,
+            leftUnlocked = leftUnlockState.value == LeftPodUnlockState.Value.UNLOCKED,
+            currentMode = currentMode(),
+        ) ?: return
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_MODE, next.name)
+            .apply()
+        Log.i(TAG, "Both pods connected and LEFT pod unlocked; switched to DOUBLE mode")
+    }
+
+    private fun recordLastPress(side: String, button: String) {
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_PRESS_SIDE, side)
+            .putString(KEY_LAST_PRESS_BUTTON, button)
+            .putLong(KEY_LAST_PRESS_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun currentMode(): MyWhooshProtocol.Mode {
+        val saved = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+            .getString(KEY_MODE, MyWhooshProtocol.Mode.SINGLE.name)
+        return if (saved == MyWhooshProtocol.Mode.DOUBLE.name) {
+            MyWhooshProtocol.Mode.DOUBLE
+        } else {
+            MyWhooshProtocol.Mode.SINGLE
+        }
+    }
+
     private fun setRunning(running: Boolean) {
         val edit = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_RUNNING, running)
+        if (running) {
+            leftUnlockState.reset()
+            edit.putString(KEY_LEFT_UNLOCK, leftUnlockState.value.name)
+        }
         if (!running) {
+            leftUnlockState.reset()
             edit.putString(KEY_LEFT, "not running")
                 .putString(KEY_RIGHT, "not running")
                 .putString(KEY_LINK, "not running")
+                .putString(KEY_LEFT_UNLOCK, leftUnlockState.value.name)
         }
         edit.apply()
     }
@@ -578,6 +654,11 @@ class ClickService : Service() {
         const val KEY_LEFT = "left"
         const val KEY_RIGHT = "right"
         const val KEY_LINK = "link"
+        const val KEY_LEFT_UNLOCK = "left_unlock"
+        const val KEY_LAST_PRESS_SIDE = "last_press_side"
+        const val KEY_LAST_PRESS_BUTTON = "last_press_button"
+        const val KEY_LAST_PRESS_AT = "last_press_at"
+        const val KEY_MODE = "mode"
 
         private const val TAG = "ZwiftBoard"
         private const val CHANNEL_ID = "zwiftboard_bridge"

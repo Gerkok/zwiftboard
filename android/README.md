@@ -23,15 +23,28 @@ vendor.
 
 The starter mapping is:
 
-| Click V2 button | MyWhoosh control |
-| --- | --- |
-| `A` | Steer right while pressed |
-| `Z` | Steer left while pressed |
-| `B` | Shift up |
-| `PLUS` | Shift down |
+| Click V2 button | SINGLE | DOUBLE |
+| --- | --- | --- |
+| `A` / `Z` | Steer right / left while pressed | Steer right / left while pressed |
+| `B` | Shift up | Shift up |
+| `PLUS` | Shift down | Shift up |
+| `Y` | U-turn | U-turn |
+| `LEFT` / `RIGHT` | — | Steer left / right while pressed |
+| `MIN` | — | Shift down |
+| `UP` / `DOWN` | — | Not supported by the current Link controls |
 
-`LEFT` and `RIGHT` are kept connected because the Click V2 is a paired device;
-only the right pod's mapped buttons send controls.
+The app automatically switches from SINGLE to DOUBLE once both pods are
+connected and the LEFT pod is confirmed unlocked by post-challenge button data.
+The switch happens once per bridge run and is not reverted if a pod disconnects.
+Use the in-app mode button to switch manually at any time. `LEFT` and `RIGHT`
+are kept connected because the Click V2 is a paired device. Mode changes apply
+immediately without reconnecting.
+
+The app also shows each pod's connection state, LEFT pod unlock state, and
+the latest button press from either pod. LEFT unlock is shown as **Unlocked**
+only after button data arrives following a challenge; otherwise the display
+distinguishes unknown, locked, and an unlock response awaiting button data.
+RIGHT does not require the Zwift unlock.
 
 ## MyWhoosh Link status
 
@@ -59,5 +72,5 @@ be running at the same time if it owns the same port or endpoint.
 
 ## Tests
 
-Run `.\gradlew.bat testDebugUnitTest` from the `android` directory. Unit tests
-cover Click button-frame decoding and the MyWhoosh control-message mapping.
+Run `.\gradlew.bat testDebugUnitTest` from the `android` directory. Unit tests cover Click button-frame decoding, the LEFT unlock-state transitions,
+and the MyWhoosh control-message mapping.

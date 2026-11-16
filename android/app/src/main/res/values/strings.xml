@@ -13,4 +13,27 @@
     <string name="status_line">%1$s: %2$s</string>
     <string name="bridge_running">Bridge running</string>
     <string name="notification_channel">ZwiftBoard controller bridge</string>
+    <string name="sign_in_to_zwift">Sign in to Zwift</string>
+    <string name="zwift_signed_in">Signed in to Zwift</string>
+    <string name="email_hint">Zwift email</string>
+    <string name="password_hint">Zwift password</string>
+    <string name="sign_in_title">Zwift sign-in</string>
+    <string name="sign_in">Sign in</string>
+    <string name="email_required">Enter your Zwift email.</string>
+    <string name="password_required">Enter your Zwift password.</string>
+    <string name="sign_in_success">Zwift sign-in succeeded.</string>
+    <string name="sign_in_failed">Zwift sign-in failed. Check your credentials and network.</string>
+    <string name="left_pod_unlock">LEFT pod unlock</string>
+    <string name="right_pod_unlock">RIGHT pod unlock</string>
+    <string name="unlock_unknown">Unknown</string>
+    <string name="unlock_locked">Locked</string>
+    <string name="unlock_in_progress">Unlocking; waiting for button data</string>
+    <string name="unlock_unlocked">Unlocked</string>
+    <string name="unlock_not_required">Not required</string>
+    <string name="last_button_press">Last button press</string>
+    <string name="no_button_press">None yet</string>
+    <string name="last_button_press_value">%1$s pod: %2$s at %3$s</string>
+    <string name="last_button_press_name">%1$s pod: %2$s</string>
+    <string name="mode_single">Mode: SINGLE (right pod only)</string>
+    <string name="mode_double">Mode: DOUBLE (both pods)</string>
 </resources>
